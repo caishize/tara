@@ -1,0 +1,1435 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Unified Insight Architecture</title>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    font-family: -apple-system, 'PingFang SC', 'Helvetica Neue', sans-serif;
+    background: #f8f7f5;
+    color: #1a1918;
+    padding: 40px 20px;
+    max-width: 1100px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-size: 28px;
+    font-weight: 700;
+    margin-bottom: 8px;
+    color: #1a1918;
+  }
+  .subtitle {
+    font-size: 14px;
+    color: #8a8784;
+    margin-bottom: 40px;
+  }
+  .section {
+    background: #fff;
+    border: 1px solid #e8e6e3;
+    border-radius: 16px;
+    padding: 32px;
+    margin-bottom: 24px;
+    box-shadow: 0 2px 12px rgba(26,25,24,0.03);
+  }
+  .section h2 {
+    font-size: 18px;
+    font-weight: 600;
+    margin-bottom: 4px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .section h2 .icon { font-size: 20px; }
+  .section .desc {
+    font-size: 13px;
+    color: #8a8784;
+    margin-bottom: 20px;
+    line-height: 1.5;
+  }
+  .mermaid {
+    display: flex;
+    justify-content: center;
+    overflow-x: auto;
+  }
+  .legend {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 16px;
+    margin-top: 16px;
+    padding-top: 16px;
+    border-top: 1px solid #e8e6e3;
+  }
+  .legend-item {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 12px;
+    color: #5a5856;
+  }
+  .legend-dot {
+    width: 10px;
+    height: 10px;
+    border-radius: 3px;
+  }
+  .tag {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 100px;
+    margin-left: 8px;
+  }
+  .tag-new { background: #e8f5e9; color: #2e7d32; }
+  .tag-remove { background: #fce4ec; color: #c62828; }
+  .tag-keep { background: #e3f2fd; color: #1565c0; }
+  .note {
+    background: #fffbf0;
+    border: 1px solid #f0e6c8;
+    border-radius: 10px;
+    padding: 14px 18px;
+    margin-top: 16px;
+    font-size: 13px;
+    color: #6d5a2e;
+    line-height: 1.5;
+  }
+  .columns {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+  }
+  @media (max-width: 700px) {
+    .columns { grid-template-columns: 1fr; }
+  }
+  .table-wrap {
+    overflow-x: auto;
+  }
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  th {
+    text-align: left;
+    font-weight: 600;
+    padding: 8px 12px;
+    border-bottom: 2px solid #e8e6e3;
+    color: #5a5856;
+    white-space: nowrap;
+  }
+  td {
+    padding: 8px 12px;
+    border-bottom: 1px solid #f0eeeb;
+    vertical-align: top;
+  }
+  td code {
+    background: #f3f2f0;
+    padding: 1px 5px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-family: 'SF Mono', 'Menlo', monospace;
+  }
+</style>
+</head>
+<body>
+
+<h1>Unified Insight Architecture</h1>
+<p class="subtitle">Secretary 洞察系统统一架构 · 基于设计文档 01.5</p>
+
+<!-- ============================================ -->
+<!-- DIAGRAM 1: Overall Pipeline -->
+<!-- ============================================ -->
+<div class="section">
+  <h2><span class="icon">🔄</span> 1. 整体流程：生成 → 存储 → 消费</h2>
+  <p class="desc">所有生成源直接写入统一 <code>insights</code> 表，消除晋升管道。6 个消费方查同一张表。</p>
+
+  <div class="mermaid">
+%%{init: {'theme': 'base', 'themeVariables': {
+  'primaryColor': '#e8f5e9',
+  'primaryBorderColor': '#4caf50',
+  'primaryTextColor': '#1a1918',
+  'secondaryColor': '#e3f2fd',
+  'tertiaryColor': '#fff3e0',
+  'lineColor': '#8a8784',
+  'fontSize': '13px'
+}}}%%
+flowchart LR
+  subgraph Sources["生成源"]
+    direction TB
+    A["🧠 System A\n记忆引擎\n(对话中/行程触发)"]
+    B["🔍 System B\n主动检测\n(关系维护/模式发现)"]
+    C["📋 System C\n简报服务\n(时间/关系洞察)"]
+    EA["🔗 EA 晋升\n策展关联\n(事件→人/地点)"]
+    R["💭 对话沉淀\n(ReflectionService)\n自动dismiss已完成"]
+  end
+
+  subgraph Orch["InsightOrchestrator"]
+    direction TB
+    O1["去重\n(semantic_dedup_key)"]
+    O2["评分\n(score = imp×0.6 + urg×0.4)"]
+    O3["人员配额\n(≤2/人)"]
+    O4["反馈学习\n(FeedbackLearner)"]
+    O5["子项解析\n(_parse_sub_items)"]
+  end
+
+  subgraph Store["存储层"]
+    direction TB
+    DB[("insights\n(单表 SSOT)")]
+    AC[("insight_actions\n(子项追踪)")]
+    DB --- AC
+  end
+
+  subgraph Consumers["消费方"]
+    direction TB
+    F1["📱 时光轴 AI 建议\n(future_view_suggestions)"]
+    F2["📰 Insight Feed\n(kanban/insight-feed)"]
+    F3["👤 成员洞察\n(member_insights)"]
+    F4["☀️ 每日简报\n(BriefingService)"]
+    F5["💬 Sidekick 注入\n(对话中旁路)"]
+    F6["👍 反馈接口\n(feedback endpoint)"]
+  end
+
+  A --> Orch
+  B --> Orch
+  C --> Orch
+  EA --> Orch
+  R -.->|"dismiss/acted"| Store
+
+  Orch --> Store
+
+  Store --> F1
+  Store --> F2
+  Store --> F3
+  Store --> F4
+  Store --> F5
+  Store --> F6
+  </div>
+
+  <div class="legend">
+    <div class="legend-item"><div class="legend-dot" style="background:#4caf50"></div>生成源 (写入)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#1976d2"></div>消费方 (读取)</div>
+    <div class="legend-item"><div class="legend-dot" style="background:#ff9800"></div>InsightOrchestrator (处理管道)</div>
+  </div>
+</div>
+
+<!-- ============================================ -->
+<!-- DIAGRAM 1.5: Trigger Scenarios Overview -->
+<!-- ============================================ -->
+<div class="section">
+  <h2><span class="icon">⚡</span> 1.5 触发场景总览</h2>
+  <p class="desc">洞察的产生分为 <strong>3 大类 7 个具体场景</strong>，每个场景有明确的触发时机、扫描范围和生成方式。</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>#</th><th>场景</th><th>触发时机</th><th>触发级别</th><th>生成方式</th><th>产出</th></tr>
+      </thead>
+      <tbody>
+        <tr style="background:#e3f2fd"><td><b>①</b></td><td>每日洞察生成</td><td>每天 06:00 UTC<br/><code>prepare_daily_content</code></td><td>T3 定时</td><td>Haiku LLM + 规则兜底</td><td>写入 <code>user_insights</code> 表</td></tr>
+        <tr style="background:#e3f2fd"><td><b>②</b></td><td>T0 主动扫描</td><td>每天 08:00 UTC<br/><code>proactive_scan</code></td><td>T3 定时</td><td>纯规则 (不调用 LLM)</td><td>ProactiveTrigger → dispatch 给 ④⑥</td></tr>
+        <tr style="background:#e3f2fd"><td><b>③</b></td><td>过期清理 + 抑制检测</td><td>04:00 / 每6h</td><td>T3 定时</td><td>纯规则</td><td>删除/标记过期洞察</td></tr>
+        <tr style="background:#fff3e0"><td><b>④</b></td><td>行程生命周期</td><td>用户创建/修改/取消行程<br/>实时</td><td>T1 立即</td><td>规则 + Haiku LLM</td><td>EventAssociation + 直接写入洞察</td></tr>
+        <tr style="background:#fff3e0"><td><b>⑤</b></td><td>对话中记忆提取</td><td>对话中提取记忆 → 5min 去抖</td><td>T2 延迟</td><td>规则匹配</td><td>CuratedEvent / EventAssociation</td></tr>
+        <tr style="background:#fff3e0"><td><b>⑥</b></td><td>重要日期临近</td><td>场景②发现 / Dispatcher 弹出</td><td>T2 延迟</td><td>规则匹配</td><td>EventAssociation</td></tr>
+        <tr style="background:#f3e5f5"><td><b>⑦</b></td><td>对话后沉淀</td><td>对话归档 <code>session_archived</code></td><td>T2 延迟</td><td>Haiku LLM 提取</td><td>dismiss 洞察 + 触发 ⑤⑥</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <strong>关键区分</strong>：场景 ① 是唯一直接生成"用户可见洞察"并写入 <code>user_insights</code> 的路径。场景 ②⑤⑥ 只生成中间产物 (EventAssociation)，需等下一个 06:00 由场景 ① 统一晋升。场景 ④ 是例外 —— 行程关联洞察通过 <code>promote_trip_insights()</code> 直接写入。
+  </div>
+</div>
+
+<!-- ============================================ -->
+<!-- DIAGRAM 1.6: Each Trigger Scenario Detail -->
+<!-- ============================================ -->
+<div class="section">
+  <h2><span class="icon">📋</span> 1.6 各场景详细逻辑</h2>
+  <p class="desc">每个触发场景的完整工作流程：扫描什么数据、如何生成洞察、具体的 SQL 查询和 LLM 调用。</p>
+
+  <!-- ======== Scenario 1: Daily Generation ======== -->
+  <h3 style="font-size:15px; margin: 24px 0 8px; padding-left:4px; border-left:3px solid #1565c0;">场景 ① 每日洞察生成 (06:00 UTC)</h3>
+  <p class="desc">
+    入口：<code>unified_dispatch</code> (30s) 弹出到期的 per-user 任务 → <code>InsightOrchestrator.generate_all(user_id, family_id)</code><br/>
+    文件：<code>insight_orchestrator.py</code>, <code>insight_service.py</code>, <code>proactive_insight_service.py</code>, <code>insight_content_generator.py</code>
+  </p>
+
+  <h4 style="font-size:13px; margin:16px 0 6px; color:#1565c0;">Step 0: 预处理</h4>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>子步骤</th><th>数据源</th><th>查询条件</th><th>产出</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>反馈权重预取</b><br/><code>InsightFeedbackLearner</code></td>
+          <td><code>insight_feedback</code> 表<br/><code>user_preference_rules</code> 表</td>
+          <td>当前 user_id 的所有反馈记录</td>
+          <td><code>suppressed_types: Set[str]</code> (预算=0 的类型)<br/><code>adjusted_weights: Dict[type→0.0~1.0]</code></td>
+        </tr>
+        <tr>
+          <td><b>构建类型预算</b></td>
+          <td>上一步的权重</td>
+          <td>每类型默认 3 条</td>
+          <td><code>generation_budget</code>: suppressed→0, weight&lt;0.5→1, 其他→3</td>
+        </tr>
+        <tr>
+          <td><b>刷新活跃洞察</b><br/><code>InsightRefreshService</code></td>
+          <td><code>memory_insights</code> 表</td>
+          <td>status="pending" + 过期/无效检查</td>
+          <td>dismiss 过时的 MemoryInsight</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4 style="font-size:13px; margin:16px 0 6px; color:#1565c0;">Step 1: System C — 简报洞察 (InsightService)</h4>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>子生成器</th><th>扫描数据</th><th>查询条件</th><th>生成方式</th><th>LLM Prompt 摘要</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>时间洞察</b><br/><code>_generate_time_insights()</code></td>
+          <td><code>curated_events</code> 表<br/>+ <code>preparation_items</code></td>
+          <td>user_id 的活跃事件<br/>情感类(生日/纪念日): ≤3天<br/>其他事件: ≤1天</td>
+          <td><b>Haiku LLM</b><br/>temperature=0.4, max_tokens=200</td>
+          <td>
+            <div style="background:#f3f2f0; padding:8px; border-radius:6px; font-size:12px; margin:4px 0; font-family:monospace; white-space:pre-wrap;">System: "你是用户的家庭管家小秘...根据即将到来的日程，生成一条温馨的准备提醒。"
+Context XML:
+  &lt;upcoming_event&gt;
+    &lt;title&gt;{event.title}&lt;/title&gt;
+    &lt;event_type&gt;{event_type}&lt;/event_type&gt;
+    &lt;days_until&gt;{days_until}&lt;/days_until&gt;
+    &lt;prep_items&gt;{prep_text}&lt;/prep_items&gt;
+  &lt;/upcoming_event&gt;
+Output: {"title":"≤10字","content":"≤50字"}</div>
+            模板兜底: <code>"记得提前准备{event.title}的事情"</code>
+          </td>
+        </tr>
+        <tr>
+          <td><b>关系相关洞察</b><br/><code>_get_recent_correlation_insights()</code></td>
+          <td><code>curated_events</code><br/>+ <code>members</code><br/>+ <code>event_associations</code></td>
+          <td>关系维护提醒<br/>(纪念日、近期互动)</td>
+          <td><b>Haiku LLM</b></td>
+          <td>同上 persona + 关系上下文 XML</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4 style="font-size:13px; margin:16px 0 6px; color:#1565c0;">Step 2: System A — 记忆引擎 (InsightGenerationService.generate_daily_insights)</h4>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>子生成器</th><th>扫描数据</th><th>查询条件</th><th>生成方式</th><th>LLM Prompt 摘要</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>行程关联分析</b><br/><code>_build_trip_correlation_insight()</code></td>
+          <td><code>memories</code> 表 (人物记忆)<br/><code>trip_plans</code> 表</td>
+          <td>用户的 RELATIONSHIP/LOCATION 记忆中的人物<br/>× 未来行程目的地<br/>模糊匹配 (城市名/地点名)</td>
+          <td><b>Haiku LLM</b><br/>temperature=0.4</td>
+          <td>
+            <div style="background:#f3f2f0; padding:8px; border-radius:6px; font-size:12px; margin:4px 0; font-family:monospace; white-space:pre-wrap;">Context XML:
+  &lt;trip_context&gt;
+    &lt;person_name&gt;{person}&lt;/person_name&gt;
+    &lt;destination&gt;{destination}&lt;/destination&gt;
+    &lt;days_until&gt;{days_until}&lt;/days_until&gt;
+    &lt;memory_summary&gt;{mem.summary}&lt;/memory_summary&gt;
+  &lt;/trip_context&gt;
+Output: {"title":"≤10字","content":"≤50字"}</div>
+            模板兜底:
+            <code>days≤0 → "别忘了联系{person}"</code><br/>
+            <code>days≤3 → "可以提前联系{person}"</code><br/>
+            <code>else → "去{dest}记得找{person}"</code>
+          </td>
+        </tr>
+        <tr>
+          <td><b>人情往来</b><br/><code>_check_favor_reciprocation()</code></td>
+          <td><code>memories</code> 表</td>
+          <td><code>memory_type=FAVOR</code><br/><code>entities['favor_direction']='received'</code><br/><code>created_at ≥ NOW()-30天</code></td>
+          <td><b>Haiku LLM</b></td>
+          <td>
+            <div style="background:#f3f2f0; padding:8px; border-radius:6px; font-size:12px; margin:4px 0; font-family:monospace; white-space:pre-wrap;">Context XML:
+  &lt;favor_reciprocation&gt;
+    &lt;person&gt;{person}&lt;/person&gt;
+    &lt;relationship&gt;{relationship}&lt;/relationship&gt;
+    &lt;favor_weight&gt;{favor_weight}&lt;/favor_weight&gt;
+    &lt;favor_summary&gt;{mem.summary}&lt;/favor_summary&gt;
+    &lt;known_preference&gt;{pref_hint}&lt;/known_preference&gt;
+  &lt;/favor_reciprocation&gt;</div>
+          </td>
+        </tr>
+        <tr>
+          <td><b>情绪趋势</b><br/><code>_check_emotion_patterns()</code></td>
+          <td><code>memories</code> 表 (情绪实体)</td>
+          <td><code>entities['sentiment']='negative'</code><br/>过去 14 天 (<code>emotion_pattern_days</code>)<br/>阈值: <code>negative_count ≥ emotion_negative_threshold</code><br/>且 <code>avg_intensity ≥ 3</code></td>
+          <td><b>Haiku LLM</b> (生成关怀文案)<br/>评分: 纯规则</td>
+          <td>
+            <div style="background:#f3f2f0; padding:8px; border-radius:6px; font-size:12px; margin:4px 0; font-family:monospace; white-space:pre-wrap;">System: "...根据用户最近的压力状况，生成一条关怀提醒。不要直接说'你很焦虑'..."
+Context XML:
+  &lt;stress_report&gt;
+    &lt;negative_count&gt;{n}&lt;/negative_count&gt;
+    &lt;avg_intensity&gt;{avg:.2f}&lt;/avg_intensity&gt;
+  &lt;/stress_report&gt;</div>
+          </td>
+        </tr>
+        <tr>
+          <td><b>跟进提醒</b><br/><code>_generate_followup_insights()</code></td>
+          <td><code>memories</code> 表 (计划类)</td>
+          <td><code>status=ACTIVE</code><br/><code>created_at &lt; NOW()-old_plan_days</code><br/>有 person 或 location</td>
+          <td><b>Haiku LLM</b></td>
+          <td>
+            <div style="background:#f3f2f0; padding:8px; border-radius:6px; font-size:12px; margin:4px 0; font-family:monospace; white-space:pre-wrap;">Context XML:
+  &lt;followup_reminder&gt;
+    &lt;person&gt;{person}&lt;/person&gt;
+    &lt;plan_summary&gt;{mem.summary}&lt;/plan_summary&gt;
+    &lt;days_overdue&gt;{days}&lt;/days_overdue&gt;
+  &lt;/followup_reminder&gt;</div>
+            模板兜底: <code>"你之前提到想找{person}，已经过了两周了"</code>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4 style="font-size:13px; margin:16px 0 6px; color:#1565c0;">Step 3: System B — 主动检测 (ProactiveInsightService, 4 个并发子生成器)</h4>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>子生成器</th><th>扫描数据</th><th>查询条件</th><th>生成方式</th><th>LLM Prompt 摘要</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>关系维护提醒</b><br/><code>_generate_relationship_reminders()</code></td>
+          <td><code>members</code> 表<br/>+ 联系时间计算<br/>(RelationshipThermometer)</td>
+          <td>每个非删除成员 (limit 50)<br/><code>temperature_status ∈ {cold, frozen}</code></td>
+          <td><b>Haiku LLM</b> (若开启 <code>enable_llm_relationship_reminders</code>)<br/>否则纯模板</td>
+          <td>
+            <div style="background:#f3f2f0; padding:8px; border-radius:6px; font-size:12px; margin:4px 0; font-family:monospace; white-space:pre-wrap;">Context XML:
+  &lt;relationship_reminder&gt;
+    &lt;person_name&gt;{name}&lt;/person_name&gt;
+    &lt;days_since_contact&gt;{days}&lt;/days_since_contact&gt;
+    &lt;relationship&gt;{relationship}&lt;/relationship&gt;
+    &lt;location&gt;{location}&lt;/location&gt;
+  &lt;/relationship_reminder&gt;</div>
+          </td>
+        </tr>
+        <tr>
+          <td><b>人情提醒</b><br/><code>_generate_favor_reminders()</code></td>
+          <td><code>memories</code> 表 (FAVOR)<br/>+ <code>gift_preferences</code></td>
+          <td>received favors (recent)<br/>偏好信息 (取前 3 个标签)</td>
+          <td><b>Haiku LLM</b></td>
+          <td>
+            <div style="background:#f3f2f0; padding:8px; border-radius:6px; font-size:12px; margin:4px 0; font-family:monospace; white-space:pre-wrap;">System: "...根据欠着人情的朋友信息，生成一条温馨的还人情提醒..."
+Context XML:
+  &lt;favor_reminder&gt;
+    &lt;person_name&gt;{name}&lt;/person_name&gt;
+    &lt;favor_description&gt;{desc}&lt;/favor_description&gt;
+    &lt;preferences&gt;{likes[:3]}&lt;/preferences&gt;
+  &lt;/favor_reminder&gt;</div>
+          </td>
+        </tr>
+        <tr>
+          <td><b>压力模式检测</b><br/><code>_check_stress_pattern()</code></td>
+          <td><code>memories</code> (情绪)<br/><code>curated_events</code> (日程)<br/><code>conversation_messages</code></td>
+          <td>6 维加权评分:<br/>
+            1. 负面记忆密度 (20%, 衰减加权)<br/>
+            2. 日程密度 (20%, 3天窗口)<br/>
+            3. 健康提及 (20%, 14天)<br/>
+            4. 事件取消 (15%)<br/>
+            5. 连续高强度天 (15%)<br/>
+            6. 家庭情感气候 (10%)
+          </td>
+          <td><b>纯规则评分</b><br/>score ≥ 0.6 → 触发<br/>文案: <b>Haiku LLM</b></td>
+          <td>
+            <div style="background:#f3f2f0; padding:8px; border-radius:6px; font-size:12px; margin:4px 0; font-family:monospace; white-space:pre-wrap;">System: "...不要直接说'你很焦虑''你压力大'，委婉关怀..."
+仅在 score≥0.6 时调用 LLM 生成文案
+模板兜底: "关心一下你的状态 — 最近提到了{n}次压力"</div>
+          </td>
+        </tr>
+        <tr>
+          <td><b>事件准备提醒</b><br/><code>_generate_event_preparations()</code></td>
+          <td><code>important_dates</code> 表</td>
+          <td>≤ <code>preparation_lead_days</code> 的日期<br/>(默认: birthday=14d, spring_festival=30d, milestone=60d)<br/>最大: 90d (<code>APPROACHING_DATE_MAX_HORIZON</code>)</td>
+          <td>生日/纪念日/婚庆: <b>Haiku LLM</b><br/>其他: <b>纯模板</b></td>
+          <td>
+            <div style="background:#f3f2f0; padding:8px; border-radius:6px; font-size:12px; margin:4px 0; font-family:monospace; white-space:pre-wrap;">仅情感类事件调用 LLM:
+Context XML:
+  &lt;event_preparation&gt;
+    &lt;event_title&gt;{title}&lt;/event_title&gt;
+    &lt;event_type&gt;birthday&lt;/event_type&gt;
+    &lt;days_until&gt;{days}&lt;/days_until&gt;
+  &lt;/event_preparation&gt;</div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4 style="font-size:13px; margin:16px 0 6px; color:#1565c0;">Step 4: EA 晋升 + 去重 + 保存</h4>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>子步骤</th><th>数据源/条件</th><th>逻辑</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>EA 晋升</b><br/><code>_promote_associations()</code></td>
+          <td><code>event_associations</code> 表<br/><code>is_promoted=False</code><br/><code>association_type IN (person, location)</code><br/><code>created_at ≥ NOW()-7天</code></td>
+          <td>转为 UserInsight 候选:<br/><code>person → insight_type=relationship</code><br/><code>location → insight_type=relationship</code><br/><code>temporal → insight_type=time</code></td>
+        </tr>
+        <tr>
+          <td><b>语义去重</b><br/><code>_dedup_insights()</code></td>
+          <td>所有候选洞察<br/>+ DB 中 24h 内已有洞察</td>
+          <td>key = <code>f"{type}:{entity_type}:{entity_id}"</code><br/>同 key 只保留一条</td>
+        </tr>
+        <tr>
+          <td><b>人员配额</b><br/><code>_person_budget_filter()</code></td>
+          <td>去重后候选</td>
+          <td>每个 <code>related_person_id</code> 最多 2 条</td>
+        </tr>
+        <tr>
+          <td><b>反馈学习抑制</b><br/><code>_apply_feedback_and_save()</code></td>
+          <td>Step 0 的 <code>generation_budget</code></td>
+          <td>suppressed 类型 → 直接丢弃<br/>weight &lt; 0.5 的类型 → 只保留 1 条<br/>正常 → 保留 3 条/类型</td>
+        </tr>
+        <tr>
+          <td><b>写入</b></td>
+          <td>-</td>
+          <td>INSERT INTO <code>user_insights</code><br/>设置 <code>source_type</code> = secretary/memory/proactive/association</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <strong>所有 LLM 调用的共同参数</strong>：模型 = <code>settings.fast_worker_model</code> (Haiku 4.5)，max_tokens = 200，temperature = 0.3~0.4，最多重试 2 次。<br/>
+    <strong>统一 Persona Prompt</strong>：<code>"你是用户的家庭管家小秘，说话像家人之间的叮嘱：温暖、贴心、不啰嗦。用'记得''别忘了''注意'而非'建议''请注意'。"</code><br/>
+    <strong>统一输出格式</strong>：<code>{"title":"标题(≤10字)", "content":"内容(≤50字)"}</code>，JSON 解析失败时用模板兜底。
+  </div>
+
+  <!-- ======== Scenario 2: Proactive Scan ======== -->
+  <h3 style="font-size:15px; margin: 30px 0 8px; padding-left:4px; border-left:3px solid #e65100;">场景 ② T0 主动扫描 (08:00 UTC)</h3>
+  <p class="desc">
+    入口：<code>secretary.proactive_scan</code> → <code>ProactiveTriggerer.scan_for_triggers(family_id, family_ctx)</code><br/>
+    文件：<code>proactive_triggerer.py</code><br/>
+    <strong>此场景不生成洞察，只发现触发条件，dispatch 给其他场景。</strong> 最大输出: 10 条触发 (<code>MAX_TRIGGERS_PER_SCAN</code>)。
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>子扫描器</th><th>扫描的表</th><th>SQL 条件</th><th>判断逻辑</th><th>输出</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>1. 日期临近</b><br/><code>_scan_approaching_dates()</code></td>
+          <td><code>important_dates</code></td>
+          <td><code>WHERE family_id=? AND solar_date &gt;= TODAY AND solar_date &lt;= TODAY+90d</code><br/><code>ORDER BY solar_date ASC LIMIT 20</code></td>
+          <td>
+            每条日期: <code>days_until = (solar_date - today).days</code><br/>
+            过滤: <code>days_until ≤ preparation_lead_days</code><br/>
+            排除: 已有非 placeholder CuratedEvent 的日期<br/>
+            <b>优先级</b>: days≤3 → P1; 亲密成员+days≤7 → P0; 其他 → P2
+          </td>
+          <td><code>ProactiveTrigger(type="approaching_date", data={date_id, title, date_type, solar_date, days_until})</code></td>
+        </tr>
+        <tr>
+          <td><b>2. 冷关系</b><br/><code>_scan_cold_relationships()</code></td>
+          <td><code>members</code><br/>+ <code>RelationshipThermometer</code></td>
+          <td><code>WHERE family_id=? AND is_deleted=false LIMIT 50</code><br/>每成员调用 <code>compute_temperature()</code></td>
+          <td>
+            计算温度状态 → 过滤 <code>status ∈ {cold, frozen}</code><br/>
+            <b>优先级</b>: frozen → P1; cold → P2
+          </td>
+          <td><code>ProactiveTrigger(type="cold_relationship", data={member_name, temperature_status, composite_score})</code></td>
+        </tr>
+        <tr>
+          <td><b>3. 过期承诺</b><br/><code>_scan_stale_commitments()</code></td>
+          <td><code>commitment_records</code></td>
+          <td><code>WHERE family_id=? AND status='pending' AND commitment_type IN ('vague','conditional') AND next_follow_up_at &lt;= NOW()</code><br/><code>ORDER BY next_follow_up_at LIMIT 20</code></td>
+          <td>
+            <code>days_overdue = (now - next_follow_up_at).days</code><br/>
+            <b>优先级</b>: days_overdue ≥ 7 → P1; 其他 → P2
+          </td>
+          <td><code>ProactiveTrigger(type="stale_commitment", data={commitment_id, who, what, to_whom, days_overdue})</code></td>
+        </tr>
+        <tr>
+          <td><b>4. 用户节奏</b><br/><code>_scan_user_rhythm()</code></td>
+          <td><code>conversation_messages</code><br/>+ <code>assistant_chat_sessions</code></td>
+          <td><code>WHERE role='user' AND created_at &gt;= NOW()-14d</code><br/><code>GROUP BY EXTRACT(HOUR FROM created_at)</code><br/><code>HAVING count ≥ 3 ORDER BY count DESC LIMIT 2</code></td>
+          <td>
+            取 top-2 峰值小时 (14 天回看)<br/>
+            检查: 当前 UTC 时 ≥ peak_hour+1 且今天该时段无用户消息?<br/>
+            若是 → 发出 check-in 提醒
+          </td>
+          <td><code>ProactiveTrigger(type="user_rhythm", priority=P3, data={peak_hour_utc, messages_at_peak})</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <strong>合成逻辑</strong>：当 2+ 个触发指向同一个 <code>target_member_id</code> 时，合并为 <code>family_focus</code> 触发，priority 取最高值。Narrative 用模板拼接 (无 LLM)。<br/>
+    <strong>后续 dispatch</strong>：approaching_date → 场景 ⑥；cold_relationship/stale_commitment → 作为候选参与下次 06:00 生成；user_rhythm → P3 低优先推送。
+  </div>
+
+  <!-- ======== Scenario 3: Cleanup ======== -->
+  <h3 style="font-size:15px; margin: 30px 0 8px; padding-left:4px; border-left:3px solid #9e9e9e;">场景 ③ 过期清理 + 忽略检测</h3>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>任务</th><th>时间</th><th>扫描条件</th><th>处理逻辑</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>cleanup_expired_insights</b></td>
+          <td>04:00 UTC 每日</td>
+          <td><code>memory_insights WHERE expires_at &lt; NOW()</code></td>
+          <td>批量 DELETE 过期行</td>
+        </tr>
+        <tr>
+          <td><b>check_ignored_insights</b></td>
+          <td>每 6 小时</td>
+          <td><code>memory_insights WHERE status='pending' AND shown_at IS NOT NULL AND shown_at &lt; NOW()-48h</code><br/>(展示后 48h 无操作 → 视为忽略)</td>
+          <td>标记为忽略 → 计入 <code>InsightFeedbackLearner</code><br/>同类型连续忽略 ≥ 3 次 → 降低该类型权重</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ======== Scenario 4: Trip Lifecycle ======== -->
+  <h3 style="font-size:15px; margin: 30px 0 8px; padding-left:4px; border-left:3px solid #d32f2f;">场景 ④ 行程生命周期 (T1 立即)</h3>
+  <p class="desc">
+    入口：用户创建/修改/取消行程 → <code>TriggerDispatcher.dispatch(trigger_type='trip_created|trip_updated|trip_cancelled')</code><br/>
+    文件：<code>trigger_dispatcher.py</code>
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>触发事件</th><th>Handler</th><th>扫描数据</th><th>处理逻辑</th><th>产出</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>trip_created</b></td>
+          <td><code>_handle_trip_created()</code></td>
+          <td><code>trip_plans</code> (加载行程)<br/><code>memories</code> (人物×目的地匹配)<br/><code>important_dates</code> (时间窗口匹配)</td>
+          <td>
+            1. 创建 <code>CuratedEvent</code><br/>
+            2. 关联发现 <code>discover_associations()</code>:<br/>
+            &nbsp;&nbsp;- <b>规则引擎</b>: 目的地 ILIKE 匹配人物记忆中的 location<br/>
+            &nbsp;&nbsp;- <b>规则引擎</b>: 行程时间窗口 ±3 天内的重要日期<br/>
+            &nbsp;&nbsp;- <b>Haiku LLM</b>: 规则未匹配时的模糊关联判断<br/>
+            3. 行程完整性检查 (<b>Haiku</b>, max_tokens=500, timeout=30s)<br/>
+            4. <code>promote_trip_insights()</code> <b>直接写入 UserInsight</b>
+          </td>
+          <td>EventAssociation (中间产物)<br/>+ UserInsight (直写, source_type="trip")</td>
+        </tr>
+        <tr>
+          <td><b>trip_updated</b></td>
+          <td><code>_handle_trip_updated()</code></td>
+          <td>同上</td>
+          <td>更新 CuratedEvent 字段<br/>若目的地或时间变更 → 重跑关联发现</td>
+          <td>更新/新增 EventAssociation</td>
+        </tr>
+        <tr>
+          <td><b>trip_cancelled</b></td>
+          <td><code>_handle_trip_lifecycle_end()</code></td>
+          <td><code>event_associations</code> (该行程的关联)<br/><code>user_insights</code> (该行程的洞察)</td>
+          <td>
+            E1 级联意图保留:<br/>
+            - <b>Haiku LLM</b> 分类每个关联 → preserve/dismiss/convert<br/>
+            - preserve: 关联独立于行程，保留<br/>
+            - dismiss: 随行程失效<br/>
+            - convert: 转为 PendingAction (如 SUGGEST_MEETING)
+          </td>
+          <td>状态变更 + 新 PendingAction</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ======== Scenario 5: Memory Extracted ======== -->
+  <h3 style="font-size:15px; margin: 30px 0 8px; padding-left:4px; border-left:3px solid #ff9800;">场景 ⑤ 对话中记忆提取 (T2 延迟)</h3>
+  <p class="desc">
+    入口：对话中 MemoryExtractor 提取记忆 → 发射 <code>memory_extracted</code> 事件 → DirtyBitManager 累积 → 5min 后批量处理<br/>
+    文件：<code>trigger_dispatcher.py</code>, <code>dirty_bit_manager.py</code>
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>阶段</th><th>机制</th><th>细节</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>1. 去抖累积</b></td>
+          <td>DirtyBitManager</td>
+          <td>
+            Redis key: <code>curation:dirty:{family_id}</code> (HASH)<br/>
+            field = <code>{trigger_type}:{entity_id}</code><br/>
+            timer key: <code>dirty_timer:{family_id}</code> (NX+EX 300s, 仅首次设置)<br/>
+            批量阈值: 5 条累积 → 立即 flush<br/>
+            时间阈值: 300s (5min) → <code>patrol-dirty-timers</code> 巡逻 flush<br/>
+            失败重试: 最多 3 次, 指数退避 1→2→4s<br/>
+            死信: <code>dirty:dead_letter:{family_id}</code> (TTL 7天)
+          </td>
+        </tr>
+        <tr>
+          <td><b>2. 路由处理</b></td>
+          <td><code>_handle_memory_extracted()</code></td>
+          <td>
+            按记忆类型分支:<br/>
+            - <b>SCHEDULE</b> → <code>mini_curate()</code>: 创建/合并 CuratedEvent + 关联发现<br/>
+            - <b>RELATIONSHIP / PLAN / LOCATION</b> → 扫描所有活跃 CuratedEvent 用规则引擎匹配 → 创建 EventAssociation<br/>
+            - 其他类型 → 跳过
+          </td>
+        </tr>
+        <tr>
+          <td><b>3. 产出</b></td>
+          <td>中间产物</td>
+          <td>CuratedEvent 和/或 EventAssociation → 等下次 06:00 场景①统一晋升为洞察</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ======== Scenario 6: Date Approaching ======== -->
+  <h3 style="font-size:15px; margin: 30px 0 8px; padding-left:4px; border-left:3px solid #7b1fa2;">场景 ⑥ 重要日期临近 (T2 延迟)</h3>
+  <p class="desc">
+    入口：场景②主动扫描发现 → dispatch <code>date_approaching</code>; 或 Unified Dispatcher 定时弹出<br/>
+    文件：<code>trigger_dispatcher.py</code> → <code>_handle_date_approaching()</code>
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>步骤</th><th>扫描数据</th><th>查询条件</th><th>逻辑</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>1. 查找窗口事件</b></td>
+          <td><code>curated_events</code></td>
+          <td><code>WHERE family_id=? AND status='active' AND event_date BETWEEN (target_date - 3d) AND (target_date + 3d)</code></td>
+          <td>找到 ±3 天窗口内的活跃事件</td>
+        </tr>
+        <tr>
+          <td><b>2. 关联发现</b></td>
+          <td><code>memories</code> + <code>members</code> + <code>important_dates</code></td>
+          <td>对每个事件运行 <code>discover_associations()</code></td>
+          <td>规则引擎 + LLM 兜底 (同场景④)</td>
+        </tr>
+        <tr>
+          <td><b>3. 产出</b></td>
+          <td>-</td>
+          <td>-</td>
+          <td>新建 <code>EventAssociation</code> → 等下次 06:00 晋升</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ======== Scenario 7: Post-session ======== -->
+  <h3 style="font-size:15px; margin: 30px 0 8px; padding-left:4px; border-left:3px solid #00796b;">场景 ⑦ 对话后沉淀</h3>
+  <p class="desc">
+    入口：对话归档 → <code>session_archived</code> → <code>PostSessionReflectionService.reflect(session_id, user_id, family_id)</code><br/>
+    文件：<code>reflection_service.py</code>
+  </p>
+
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>步骤</th><th>数据源</th><th>机制</th><th>LLM Prompt / 规则</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>1. 实体提取</b></td>
+          <td><code>conversation_messages</code><br/>(该 session 的全部对话)</td>
+          <td><b>Haiku LLM</b><br/>max_tokens=400<br/>timeout=10s</td>
+          <td>
+            <div style="background:#f3f2f0; padding:8px; border-radius:6px; font-size:12px; margin:4px 0; font-family:monospace; white-space:pre-wrap;">Prompt: "从对话提取：
+- trip_hints: [{destination, date_hint}] (max 3)
+- member_names: [str] (max 5)
+- important_dates: [YYYY-MM-DD] (max 3)
+- completed_actions: [{action: contacted|booked|
+  cancelled|resolved, entity, context}] (max 3)"</div>
+          </td>
+        </tr>
+        <tr>
+          <td><b>2. Dismiss 已完成洞察</b></td>
+          <td><code>completed_actions</code> (上一步提取)<br/>+ <code>memory_insights</code> / <code>user_insights</code></td>
+          <td>纯规则匹配</td>
+          <td>
+            匹配 action.entity 与洞察的 title/content<br/>
+            MemoryInsight → <code>status='acted'</code><br/>
+            UserInsight → <code>status='actioned'</code><br/>
+            发射生命周期事件给 FeedbackLearner
+          </td>
+        </tr>
+        <tr>
+          <td><b>3. 聚焦策展</b><br/><code>_focused_curation()</code></td>
+          <td>提取出的 trip_hints / member_names / important_dates</td>
+          <td>dispatch 给其他场景</td>
+          <td>
+            <b>trip_hints</b>: 模糊匹配 TripPlan.destination → <code>TripCompletenessService.check()</code><br/>
+            <b>member_names</b>: ILIKE 匹配 Member → 查 7天前+30天后 CuratedEvent → 运行关联发现 (场景⑤逻辑)<br/>
+            <b>important_dates</b>: 解析日期 → dispatch <code>date_approaching</code> (场景⑥)<br/>
+            <b>冷却</b>: 进程内 dict 缓存, key=<code>(family_id, entity_type, entity_key)</code>, TTL=30min (<code>REFLECTION_COOLDOWN_MINUTES</code>)
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ============================================ -->
+<!-- SECTION 1.7: User Query & Action Handling -->
+<!-- ============================================ -->
+<div class="section">
+  <h2><span class="icon">📱</span> 1.7 用户端：查询、过滤与操作处理</h2>
+  <p class="desc">不同消费场景对应不同的查询条件、过滤逻辑和操作处理方式。用户操作的结果会回流到生成流程中。</p>
+
+  <h4 style="font-size:13px; margin:16px 0 6px; color:#d32f2f;">消费场景 A: 时光轴 AI 建议 (Future View)</h4>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>环节</th><th>查询/过滤</th><th>细节</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>数据源</b></td>
+          <td><code>memory_insights</code> 表<br/><span style="color:#c62828">(注意: 不是 user_insights, 这是当前的不一致)</span></td>
+          <td>
+            <code>kanban_service.py</code> → <code>get_insight_feed()</code>
+          </td>
+        </tr>
+        <tr>
+          <td><b>SQL 查询</b></td>
+          <td>主查询</td>
+          <td>
+            <div style="background:#f3f2f0; padding:8px; border-radius:6px; font-size:12px; font-family:monospace; white-space:pre-wrap;">SELECT * FROM memory_insights
+WHERE user_id = ?
+  AND status = 'pending'
+  AND (expires_at IS NULL OR expires_at > NOW())
+  AND created_at >= NOW() - 30天
+ORDER BY (
+  CASE urgency
+    WHEN 'urgent' THEN 3
+    WHEN 'important' THEN 2
+    ELSE 1
+  END * 1000
+  + COALESCE(priority, 5) * 100
+  - EXTRACT(EPOCH, NOW()-created_at) / 86400
+) DESC
+LIMIT 30</div>
+          </td>
+        </tr>
+        <tr>
+          <td><b>后处理</b></td>
+          <td>去重 + 合并</td>
+          <td>
+            1. <code>_deduplicate_memory_insights()</code> → limit 10<br/>
+            2. <code>_build_event_driven_insights()</code> → <b>纯规则</b>模板, 基于 event prep items + associations<br/>
+            3. <code>_merge_insights()</code> → event_driven 优先, 合计 limit 10<br/>
+            4. 首次展示时标记 <code>shown_at = NOW()</code>
+          </td>
+        </tr>
+        <tr>
+          <td><b>sub_items 构建</b><br/>(suggestion card 内)</td>
+          <td>3 个来源</td>
+          <td>
+            1. <code>_parse_content_sub_items()</code>: 解析 content 中的 "可顺便处理：X、Y、Z" 模式<br/>
+            2. 匹配的 <code>PendingAction</code> (SUGGEST_MEETING/GREETING/GIFT/DEFER)<br/>
+            3. 过滤: 已采纳的 sub_items (<code>action_data.adopted_items</code>) 和已有准备项
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4 style="font-size:13px; margin:16px 0 6px; color:#1565c0;">消费场景 B: 每日简报</h4>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>查询</th><th>条件</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>insight_service.get_insights_for_briefing()</code></td>
+          <td>
+            <div style="background:#f3f2f0; padding:8px; border-radius:6px; font-size:12px; font-family:monospace; white-space:pre-wrap;">SELECT * FROM user_insights
+WHERE user_id = ?
+  AND status = 'pending'
+  AND importance_score >= 60
+  [AND family_id = ?]
+ORDER BY importance_score DESC
+LIMIT 5</div>
+            <b>注意</b>: 简报查的是 <code>user_insights</code> (正确)
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4 style="font-size:13px; margin:16px 0 6px; color:#7b1fa2;">消费场景 C: 成员洞察 (Member Detail Page)</h4>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>查询</th><th>条件</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><code>insight_repository.get_insights_for_member()</code></td>
+          <td>
+            <div style="background:#f3f2f0; padding:8px; border-radius:6px; font-size:12px; font-family:monospace; white-space:pre-wrap;">-- Primary: user_insights (SSOT)
+SELECT * FROM user_insights
+WHERE user_id = ?
+  AND status IN ('pending','pushed','read')
+  AND (expires_at IS NULL OR expires_at > NOW())
+  AND related_person_id = ?
+ORDER BY importance_score DESC LIMIT 20
+
+-- Fallback: unpromoted EAs (≤30min grace)
+SELECT ea.* FROM event_associations ea
+  JOIN curated_events ce ON ...
+WHERE ea.target_member_id = ?
+  AND ea.is_promoted = false
+  AND ea.created_at >= NOW() - 30min</div>
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h4 style="font-size:13px; margin:16px 0 6px; color:#00796b;">用户操作处理 & 反馈回流</h4>
+  <div class="table-wrap">
+    <table>
+      <thead><tr><th>用户操作</th><th>API / Handler</th><th>处理逻辑</th><th>反馈回流到生成</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><b>采纳子项</b><br/>(点击 AI 建议的子项)</td>
+          <td><code>POST /future-view/accept-suggestion</code><br/><code>kanban.py</code></td>
+          <td>
+            <code>MemoryInsight.action_data["adopted_items"].append(item_text)</code><br/>
+            <code>flag_modified(insight, "action_data")</code><br/>
+            当全部子项均已采纳: <code>status='acted', acted_at=NOW()</code>
+          </td>
+          <td>
+            <b>直接影响</b>: <code>status='acted'</code> → 下次查询时不再返回 (status 过滤)<br/>
+            <b>间接影响</b>: acted 计入正面反馈 → FeedbackLearner 不降权该类型
+          </td>
+        </tr>
+        <tr>
+          <td><b>忽略/dismiss</b><br/>(滑动删除 / X 按钮)</td>
+          <td><code>dismiss_user_insight_with_cascade()</code><br/><code>insight_repository.py</code></td>
+          <td>
+            UserInsight → <code>status='dismissed'</code><br/>
+            级联: 通过 <code>DismissCascadeService</code> 处理关联项
+          </td>
+          <td>
+            <b>直接影响</b>: 不再返回<br/>
+            <b>间接影响</b>: dismissed 计入负面反馈<br/>
+            连续同类型忽略 ≥ 3 次 → <code>check_ignored_insights</code> (每6h) 检测到 → <code>adjusted_weights[type]</code> 降低<br/>
+            极端: NEVER 反馈 → <code>suppressed_types</code> 该类型预算=0
+          </td>
+        </tr>
+        <tr>
+          <td><b>展示但未操作</b></td>
+          <td>自动标记</td>
+          <td><code>shown_at = NOW()</code> (首次展示时)</td>
+          <td>
+            <b>间接影响</b>: shown 后 48h 无操作 → <code>check_ignored_insights</code> 标记为忽略 → 计入负面反馈
+          </td>
+        </tr>
+        <tr>
+          <td><b>确认 PendingAction</b></td>
+          <td><code>POST /pending-actions/{id}/confirm</code></td>
+          <td>执行 PendingAction → 关联 insight status='actioned'</td>
+          <td>同"采纳"的反馈回流</td>
+        </tr>
+        <tr>
+          <td><b>对话中完成动作</b><br/>(间接操作)</td>
+          <td>场景 ⑦ ReflectionService</td>
+          <td>Haiku LLM 识别 "contacted/booked/cancelled/resolved" → 自动 dismiss 对应洞察</td>
+          <td>计入正面反馈 (action_taken=true)</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <strong>反馈回流总结</strong>：用户操作 → 状态变更 (acted/dismissed/ignored) → <code>InsightFeedbackLearner</code> 统计 → 调整 <code>generation_budget</code> → 影响场景① Step 0 的类型预算。这构成一个完整的闭环。<br/><br/>
+    <strong>当前不一致问题</strong>：时光轴 (消费场景 A) 查询的是 <code>memory_insights</code> 表，而简报和成员洞察查的是 <code>user_insights</code> 表。场景①的所有生成最终写入 <code>user_insights</code>，但时光轴看不到这些洞察。反过来，时光轴展示的 <code>memory_insights</code> 中的洞察也不会被简报和成员页面看到。这就是用户报告"采纳无效"的根本原因之一。
+  </div>
+</div>
+
+<!-- ============================================ -->
+<!-- SECTION 1.8: Scenario Dependencies -->
+<!-- ============================================ -->
+<div class="section">
+  <h2><span class="icon">🔗</span> 1.8 场景间依赖关系</h2>
+  <p class="desc">各场景不是孤立的，它们之间有明确的数据流转和触发链路。</p>
+
+  <div class="mermaid">
+%%{init: {'theme': 'base', 'themeVariables': { 'fontSize': '11px' }}}%%
+flowchart TB
+  subgraph DAILY["每日循环"]
+    S1["① 06:00 每日生成"]
+    S2["② 08:00 主动扫描"]
+    S1 -->|"洞察写入 user_insights"| DB[("user_insights")]
+    S2 -->|"发现临近日期"| S6["⑥ date_approaching"]
+    S6 -->|"创建 EA"| EA[("event_associations")]
+    EA -->|"下个 06:00 晋升"| S1
+  end
+
+  subgraph USER["用户交互"]
+    Chat["用户对话"] -->|"记忆提取"| S5["⑤ memory_extracted"]
+    Chat -->|"创建行程"| S4["④ trip_created"]
+    Chat -->|"结束对话"| S7["⑦ 对话后沉淀"]
+
+    S4 -->|"关联发现 → EA"| EA
+    S4 -->|"行程洞察 → 直接写入"| DB
+    S5 -->|"SCHEDULE→事件 / 其他→EA"| EA
+    S7 -->|"dismiss 过时洞察"| DB
+    S7 -->|"聚焦策展 → 触发"| S5
+    S7 -->|"聚焦策展 → 触发"| S6
+  end
+
+  subgraph CLEAN["维护"]
+    S3["③ 04:00 过期清理"] -->|"删除过期"| DB
+  end
+
+  DB -->|"简报/成员洞察查 user_insights"| UI["📱 用户 App"]
+  MI[("memory_insights")] -->|"时光轴查 memory_insights"| UI
+
+  style DAILY fill:#e3f2fd,stroke:#1565c0
+  style USER fill:#fff3e0,stroke:#e65100
+  style CLEAN fill:#f5f5f5,stroke:#9e9e9e
+  style DB fill:#e8f5e9,stroke:#4caf50
+  style MI fill:#fce4ec,stroke:#c62828
+  </div>
+
+  <div class="note">
+    <strong>核心循环</strong>：用户对话 → 记忆提取 → EventAssociation → 06:00 晋升为洞察 → 用户在 App 中看到 → 采纳/忽略 → FeedbackLearner 反馈学习 → 影响下次生成预算。<br/>
+    <strong>EventAssociation 是关键中间产物</strong>：场景④⑤⑥都生成 EA，场景①负责统一晋升为洞察。场景④的行程关联洞察是唯一"跳过 EA、直接生成洞察"的路径。<br/>
+    <strong style="color:#c62828">双表问题</strong>：<code>user_insights</code> (场景①写入) 和 <code>memory_insights</code> (时光轴查询) 是两个独立的表，数据不互通。这是架构重构要解决的核心问题。
+  </div>
+</div>
+
+<!-- ============================================ -->
+<!-- SECTION 1.9: Daily Timeline -->
+<!-- ============================================ -->
+<div class="section">
+  <h2><span class="icon">🕐</span> 1.9 一天的时间线</h2>
+  <p class="desc">所有定时任务按时间排列，展示洞察相关的完整日程。</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>时间 (UTC)</th><th>Celery 任务</th><th>作用</th><th>与洞察的关系</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>02:00</code></td><td>extraction_cache_cleanup (周日)</td><td>清理提取缓存</td><td>间接：释放空间</td></tr>
+        <tr><td><code>03:00</code></td><td>meal_window_inference (周日)</td><td>统计用餐窗口</td><td>间接：影响推送时机</td></tr>
+        <tr><td><code>03:00</code></td><td>gift_expire_old</td><td>过期礼物任务</td><td>无直接关系</td></tr>
+        <tr><td><code>03:30</code></td><td>consolidate_preferences</td><td>整合用户偏好规则</td><td>间接：偏好影响 FeedbackLearner 权重</td></tr>
+        <tr style="background:#fce4ec"><td><code>04:00</code></td><td><strong>cleanup_expired_insights</strong></td><td><strong>场景 ③ 过期清理</strong></td><td><strong>直接</strong>：批量删除过期洞察</td></tr>
+        <tr><td><code>04:30</code></td><td>compress_daily_memories</td><td>记忆压缩</td><td>间接：为 System A 提供干净的记忆池</td></tr>
+        <tr><td><code>05:15</code></td><td>extract_preference_rules</td><td>Haiku 偏好提取 (E2)</td><td>间接：学习 NEVER/DEFER → 抑制同类洞察</td></tr>
+        <tr><td><code>05:30</code></td><td>refresh_fatigue_state</td><td>疲劳度刷新</td><td>间接：高疲劳时减少推送量</td></tr>
+        <tr style="background:#e8f5e9"><td><code>06:00</code></td><td><strong>prepare_daily_content</strong></td><td><strong>场景 ① 每日洞察生成</strong></td><td><strong>核心</strong>：System A+B+C+EA晋升 → 写入 user_insights</td></tr>
+        <tr><td><code>06:00</code></td><td>holiday_preparation</td><td>假期准备检查</td><td>间接：可触发 event_preparation 类洞察</td></tr>
+        <tr style="background:#fff3e0"><td><code>08:00</code></td><td><strong>proactive_scan</strong></td><td><strong>场景 ② 主动扫描</strong></td><td><strong>核心</strong>：4 子扫描器 → dispatch 给场景④⑥</td></tr>
+        <tr><td><code>每 6h</code></td><td>check_ignored_insights</td><td>检测被忽略洞察</td><td><strong>反馈回流</strong>：shown 48h+ 无操作 → FeedbackLearner 降权</td></tr>
+        <tr><td><code>每 5min</code></td><td>patrol_dirty_timers</td><td>DirtyBit 巡逻</td><td><strong>直接</strong>：flush 累积的 T2 触发 (场景⑤)</td></tr>
+        <tr><td><code>每 2min</code></td><td>expire_stale_pending_actions</td><td>过期 PendingAction</td><td>间接：过期 PA 不再展示在 suggestion card</td></tr>
+        <tr><td><code>每 30s</code></td><td>unified_dispatch</td><td>统一调度器</td><td><strong>直接</strong>：弹出到期的 per-user 任务 (含 06:00 生成)</td></tr>
+        <tr style="background:#fff3e0"><td><code>实时</code></td><td>用户对话/操作</td><td>场景④⑤⑥⑦</td><td><strong>直接</strong>：实时触发洞察生成/销毁/反馈记录</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ============================================ -->
+<!-- DIAGRAM 2: Before vs After -->
+<!-- ============================================ -->
+<div class="section">
+  <h2><span class="icon">⚡</span> 2. 变更对比：Before → After</h2>
+  <p class="desc">左侧为当前架构（双表 + 晋升管道），右侧为目标架构（单表直写）。</p>
+
+  <div class="columns">
+    <div>
+      <h3 style="font-size:14px; color:#c62828; margin-bottom:12px;">❌ 当前架构 (Before)</h3>
+      <div class="mermaid">
+%%{init: {'theme': 'base', 'themeVariables': { 'fontSize': '12px', 'lineColor': '#ccc' }}}%%
+flowchart TB
+  G["生成源"] --> MI[("memory_insights\n(原始洞察)")]
+  MI -->|"晋升管道\n(延迟 8h~14d)"| UI[("user_insights\n(面向用户)")]
+  MI -->|"❌ 直接查 MI"| Feed["Insight Feed"]
+  MI -->|"❌ 直接查 MI"| FV["Future View"]
+  UI --> Brief["简报"]
+  UI --> Member["成员洞察"]
+  UI --> Side["Sidekick"]
+  style MI fill:#fce4ec,stroke:#c62828
+  style UI fill:#e3f2fd,stroke:#1565c0
+  style Feed fill:#fff3e0,stroke:#e65100
+  style FV fill:#fff3e0,stroke:#e65100
+      </div>
+    </div>
+    <div>
+      <h3 style="font-size:14px; color:#2e7d32; margin-bottom:12px;">✅ 目标架构 (After)</h3>
+      <div class="mermaid">
+%%{init: {'theme': 'base', 'themeVariables': { 'fontSize': '12px', 'lineColor': '#4caf50' }}}%%
+flowchart TB
+  G["生成源"] --> I[("insights\n(统一 SSOT)")]
+  I --> Feed["Insight Feed"]
+  I --> FV["Future View"]
+  I --> Brief["简报"]
+  I --> Member["成员洞察"]
+  I --> Side["Sidekick"]
+  I --- IA[("insight_actions\n(子项追踪)")]
+  style I fill:#e8f5e9,stroke:#2e7d32
+  style IA fill:#e8f5e9,stroke:#2e7d32
+      </div>
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>消除的组件：</strong>晋升管道 (promote pipeline)、孤儿清扫任务 (orphan sweep)、MemoryInsight.is_promoted 追踪、双表反馈自动探测、3 套评分系统、6 种状态值
+  </div>
+</div>
+
+<!-- ============================================ -->
+<!-- DIAGRAM 3: Status Lifecycle -->
+<!-- ============================================ -->
+<div class="section">
+  <h2><span class="icon">🔄</span> 3. 统一状态生命周期</h2>
+  <p class="desc">5 个状态替代原有的 pending/shown/pushed/read/acted/actioned/dismissed/deferred/expired 混乱状态。</p>
+
+  <div class="mermaid">
+%%{init: {'theme': 'base', 'themeVariables': { 'fontSize': '13px' }}}%%
+stateDiagram-v2
+  [*] --> pending : 生成写入
+  pending --> active : 首次展示给用户\n(设置 shown_at)
+  pending --> dismissed : 用户忽略 / 反馈学习抑制
+  active --> acted : 用户采纳 / 点击有用\n(设置 acted_at)
+  active --> dismissed : 用户忽略\n(设置 dismissed_at)
+  active --> expired : TTL 到期\n(后台任务)
+  pending --> expired : TTL 到期
+
+  note right of pending
+    推送追踪独立于状态：
+    pushed_at 记录推送时间
+    不影响状态流转
+  end note
+
+  note right of acted
+    insight_actions 全部
+    adopted/done/skipped
+    → 自动 acted
+  end note
+  </div>
+
+  <div class="table-wrap" style="margin-top:20px">
+    <table>
+      <thead>
+        <tr><th>新状态</th><th>含义</th><th>原 MI 状态</th><th>原 UI 状态</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>pending</code></td><td>已生成，未展示</td><td>pending</td><td>pending</td></tr>
+        <tr><td><code>active</code></td><td>已展示给用户</td><td>shown</td><td>pushed, read</td></tr>
+        <tr><td><code>acted</code></td><td>用户已操作</td><td>acted</td><td>actioned</td></tr>
+        <tr><td><code>dismissed</code></td><td>用户/系统忽略</td><td>dismissed</td><td>dismissed</td></tr>
+        <tr><td><code>expired</code></td><td>TTL 超时</td><td>(无)</td><td>(is_expired 属性)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ============================================ -->
+<!-- DIAGRAM 4: Adopt Flow -->
+<!-- ============================================ -->
+<div class="section">
+  <h2><span class="icon">✅</span> 4. 采纳流程 (Adopt Flow) 详解</h2>
+  <p class="desc">用户在时光轴 AI 建议中点击"采纳"子项 → 子项进入行程卡片 → 建议卡片实时更新。</p>
+
+  <div class="mermaid">
+%%{init: {'theme': 'base', 'themeVariables': { 'fontSize': '12px' }}}%%
+sequenceDiagram
+  participant U as 📱 用户
+  participant App as Flutter App
+  participant API as Backend API
+  participant DB as PostgreSQL
+
+  Note over U,DB: 阶段一：洞察生成（后台）
+  API->>DB: InsightOrchestrator 写入 insights 行
+  API->>DB: 解析子项 → 写入 insight_actions 行
+  Note right of DB: insight_actions:<br/>• "去看看李思远" (pending)<br/>• "带特产给张同事" (pending)
+
+  Note over U,DB: 阶段二：用户浏览
+  U->>App: 进入时光轴
+  App->>API: GET /kanban/future-view
+  API->>DB: SELECT insights + insight_actions<br/>WHERE status IN ('pending','active')
+  DB-->>API: 洞察 + 子项列表
+  API-->>App: suggestions (含 sub_items)
+  App-->>U: 显示 AI 建议卡片 +<br/>行程卡片 (0 个已采纳任务)
+
+  Note over U,DB: 阶段三：采纳子项
+  U->>App: 点击"采纳"→ "去看看李思远"
+  App->>API: POST /insights/{id}/actions/{action_id}/adopt<br/>{ trip_id: "xxx" }
+  API->>DB: UPDATE insight_actions<br/>SET status='adopted',<br/>related_trip_id=?,<br/>adopted_at=now()
+  API->>DB: 检查该 insight 下所有 actions<br/>是否全部 adopted/done/skipped
+  alt 还有未处理的子项
+    API-->>App: { all_adopted: false }
+  else 全部已处理
+    API->>DB: UPDATE insights<br/>SET status='acted', acted_at=now()
+    API-->>App: { all_adopted: true }
+  end
+
+  Note over U,DB: 阶段四：刷新展示
+  App->>API: GET /kanban/future-view (刷新)
+  API->>DB: 查询 insights + actions
+  DB-->>API: 已采纳项 via insight_actions
+  API-->>App: suggestions (减少子项)<br/>+ trips (多出已采纳任务)
+  App-->>U: ✅ 行程卡片展示"去看看李思远"<br/>❌ 建议卡片中该子项消失
+  </div>
+</div>
+
+<!-- ============================================ -->
+<!-- DIAGRAM 5: Data Model -->
+<!-- ============================================ -->
+<div class="section">
+  <h2><span class="icon">🗄️</span> 5. 数据模型关系</h2>
+  <p class="desc">核心 3 张表的关系。<code>insights</code> 为 SSOT，<code>insight_actions</code> 追踪子项，<code>event_associations</code> 保持独立。</p>
+
+  <div class="mermaid">
+%%{init: {'theme': 'base', 'themeVariables': { 'fontSize': '12px' }}}%%
+erDiagram
+  insights {
+    uuid id PK
+    uuid user_id
+    uuid family_id
+    varchar insight_type "time|relationship|favor|..."
+    varchar title
+    text content
+    int score "0-100 预算算"
+    varchar urgency "critical|high|normal|low"
+    uuid related_event_id FK
+    uuid related_trip_id FK
+    uuid related_person_id FK
+    uuid related_important_date_id FK
+    uuid_arr related_member_ids
+    varchar source_type "briefing|memory|proactive|association"
+    uuid source_id
+    uuid source_memory_id FK
+    varchar status "pending|active|acted|dismissed|expired"
+    timestamptz shown_at
+    timestamptz acted_at
+    timestamptz dismissed_at
+    timestamptz pushed_at
+    jsonb action_options "List of ActionSpec"
+    varchar feedback
+    timestamptz feedback_at
+    varchar semantic_dedup_key
+    timestamptz expires_at
+    jsonb extra_data
+    timestamptz created_at
+  }
+
+  insight_actions {
+    uuid id PK
+    uuid insight_id FK
+    varchar action_text "去看看李思远"
+    varchar action_type "task|suggestion|reminder"
+    varchar status "pending|adopted|done|skipped"
+    uuid related_trip_id FK
+    timestamptz adopted_at
+    timestamptz completed_at
+    int sort_order
+    timestamptz created_at
+  }
+
+  insight_feedbacks {
+    uuid id PK
+    uuid insight_id FK "→ insights.id"
+    uuid user_id
+    varchar feedback_type
+    timestamptz created_at
+  }
+
+  event_associations {
+    uuid id PK
+    uuid source_event_id FK
+    varchar target_id
+    varchar target_type
+    varchar association_type
+    uuid promoted_insight_id FK "→ insights.id"
+  }
+
+  trip_plans {
+    uuid trip_id PK
+    varchar trip_name
+    varchar destination
+  }
+
+  insights ||--o{ insight_actions : "has sub-items"
+  insights ||--o{ insight_feedbacks : "has feedback"
+  event_associations |o--o| insights : "promotes to"
+  insights }o--o| trip_plans : "related_trip_id"
+  insight_actions }o--o| trip_plans : "adopted into"
+  </div>
+</div>
+
+<!-- ============================================ -->
+<!-- DIAGRAM 6: Generation Pipeline Detail -->
+<!-- ============================================ -->
+<div class="section">
+  <h2><span class="icon">⚙️</span> 6. 生成管道细节</h2>
+  <p class="desc">InsightOrchestrator 内部处理流程：从原始候选到写入 insights 表。</p>
+
+  <div class="mermaid">
+%%{init: {'theme': 'base', 'themeVariables': { 'fontSize': '12px' }}}%%
+flowchart TB
+  subgraph Generators["并行生成"]
+    A["System A\n记忆引擎\n(generate_insights_for_trip)\n(generate_daily_insights)"]
+    B["System B\n主动检测\n(relationship_reminders)\n(favor_reminders)\n(pattern_detection)\n(event_preparations)"]
+    C["System C\n简报服务\n(time_insights)\n(correlation_insights)"]
+    EA["EA 晋升\n(promote_associations)"]
+  end
+
+  subgraph Pipeline["InsightOrchestrator 管道"]
+    direction TB
+    P1["① 类型标准化\nreminder→time\ncorrelation→relationship\n..."]
+    P2["② 评分计算\nscore = importance×0.6\n         + urgency×0.4"]
+    P3["③ 语义去重\nsemantic_dedup_key\n24-48h 冷却窗口"]
+    P4["④ 人员配额\n每人 ≤2 条"]
+    P5["⑤ 类型预算\n每类型 ≤3 条"]
+    P6["⑥ 反馈学习\n抑制用户不喜欢的类型\n(FeedbackLearner)"]
+    P7["⑦ 子项解析\n'可顺便处理：X、Y、Z'\n→ insight_actions 行"]
+    P1 --> P2 --> P3 --> P4 --> P5 --> P6 --> P7
+  end
+
+  subgraph Write["写入"]
+    W1[("insights 表")]
+    W2[("insight_actions 表")]
+  end
+
+  A --> P1
+  B --> P1
+  C --> P1
+  EA --> P1
+
+  P7 --> W1
+  P7 --> W2
+
+  style Pipeline fill:#fff8e1,stroke:#f9a825
+  style Write fill:#e8f5e9,stroke:#4caf50
+  </div>
+
+  <div class="note">
+    <strong>关键变化：</strong>System A 不再先写 <code>memory_insights</code> 再晋升，而是在 InsightOrchestrator 内直接生成 Insight 对象（内存中），经管道处理后一次性写入 <code>insights</code> 表。子项解析也从展示时（<code>_parse_content_sub_items</code>）提前到生成时。
+  </div>
+</div>
+
+<!-- ============================================ -->
+<!-- DIAGRAM 7: Consumer Query Patterns -->
+<!-- ============================================ -->
+<div class="section">
+  <h2><span class="icon">📖</span> 7. 消费方查询模式</h2>
+  <p class="desc">所有消费方统一查 <code>insights</code> 表，按各自需求过滤。</p>
+
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr>
+          <th>消费方</th>
+          <th>查询条件</th>
+          <th>额外 JOIN</th>
+          <th>排序</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>📱 时光轴 AI 建议</td>
+          <td><code>status IN ('pending','active')</code><br/><code>family_id = ?</code></td>
+          <td><code>LEFT JOIN insight_actions</code><br/>(过滤已采纳子项)</td>
+          <td><code>score DESC</code></td>
+        </tr>
+        <tr>
+          <td>📰 Insight Feed</td>
+          <td><code>status IN ('pending','active')</code><br/><code>user_id = ?</code><br/><code>created_at >= now()-30d</code></td>
+          <td>无</td>
+          <td><code>score DESC</code></td>
+        </tr>
+        <tr>
+          <td>👤 成员洞察</td>
+          <td><code>status IN ('pending','active')</code><br/><code>related_person_id = ?</code></td>
+          <td>无</td>
+          <td><code>created_at DESC</code></td>
+        </tr>
+        <tr>
+          <td>☀️ 每日简报</td>
+          <td><code>status = 'pending'</code><br/><code>score >= 60</code></td>
+          <td>无</td>
+          <td><code>score DESC</code></td>
+        </tr>
+        <tr>
+          <td>💬 Sidekick</td>
+          <td><code>status IN ('pending','active')</code><br/><code>score >= 70</code></td>
+          <td>无</td>
+          <td><code>score DESC</code></td>
+        </tr>
+        <tr>
+          <td>👍 反馈接口</td>
+          <td><code>id = ?</code></td>
+          <td>无</td>
+          <td>—</td>
+        </tr>
+        <tr>
+          <td>✅ 行程卡片任务</td>
+          <td>—</td>
+          <td><code>SELECT FROM insight_actions</code><br/><code>WHERE related_trip_id = ?</code><br/><code>AND status IN ('adopted','done')</code></td>
+          <td><code>sort_order</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ============================================ -->
+<!-- DIAGRAM 8: Migration Path -->
+<!-- ============================================ -->
+<div class="section">
+  <h2><span class="icon">🚀</span> 8. 迁移路径</h2>
+  <p class="desc">三阶段迁移，因无需向后兼容，可一次性发布。</p>
+
+  <div class="mermaid">
+%%{init: {'theme': 'base', 'themeVariables': { 'fontSize': '12px' }}}%%
+flowchart LR
+  subgraph A["Phase A\n建表 + 数据迁移"]
+    direction TB
+    A1["CREATE TABLE insights"]
+    A2["CREATE TABLE insight_actions"]
+    A3["backfill from user_insights\n(1:1 映射)"]
+    A4["backfill from memory_insights\n(未晋升的)"]
+    A5["remap insight_feedbacks FK"]
+    A1 --> A2 --> A3 --> A4 --> A5
+  end
+
+  subgraph B["Phase B\n切换代码"]
+    direction TB
+    B1["6 个 consumer 改查 insights"]
+    B2["InsightOrchestrator 改写 insights"]
+    B3["新增 adopt endpoint"]
+    B4["更新 Flutter models + BLoC"]
+    B1 --> B2 --> B3 --> B4
+  end
+
+  subgraph C["Phase C\n清理"]
+    direction TB
+    C1["DROP memory_insights"]
+    C2["DROP user_insights"]
+    C3["删除晋升管道代码"]
+    C4["删除 MI/UI ORM models"]
+    C1 --> C2 --> C3 --> C4
+  end
+
+  A --> B --> C
+
+  style A fill:#e3f2fd,stroke:#1565c0
+  style B fill:#fff3e0,stroke:#e65100
+  style C fill:#fce4ec,stroke:#c62828
+  </div>
+</div>
+
+<script>
+  mermaid.initialize({
+    startOnLoad: true,
+    securityLevel: 'loose',
+    flowchart: { useMaxWidth: true, htmlLabels: true, curve: 'basis' },
+    sequence: { useMaxWidth: true, mirrorActors: false },
+    er: { useMaxWidth: true },
+  });
+</script>
+
+</body>
+</html>

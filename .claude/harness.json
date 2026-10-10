@@ -1,0 +1,33 @@
+{
+  "version": "2.0",
+  "pillars": ["architecture", "documentation", "observability", "entropy"],
+  "layers": ["types", "config", "repository", "services", "ai_engine", "api"],
+  "layer_dirs": {
+    "types": "backend/src/db",
+    "config": "backend/src/config",
+    "repository": "backend/src/modules/*/repository*.py",
+    "services": "backend/src/modules",
+    "ai_engine": "backend/src/ai_engine",
+    "api": "backend/src/api"
+  },
+  "sibling_layers": {
+    "core": "backend/src/core",
+    "mobile": "mobile/lib"
+  },
+  "providers_path": "backend/src/core/interfaces",
+  "file_size_limit": 500,
+  "nested_claude_md_threshold": 5,
+  "languages": ["python", "dart"],
+  "frameworks": ["fastapi", "flutter"],
+  "package_managers": ["pip", "pub"],
+  "test_commands": {
+    "backend": "cd backend && pytest",
+    "mobile": "cd mobile && flutter test",
+    "migrations": "cd backend && alembic upgrade head"
+  },
+  "lint_commands": {
+    "backend_format": "cd backend && black src/ tests/",
+    "backend_lint": "cd backend && flake8 src/ tests/",
+    "backend_types": "cd backend && mypy src/"
+  }
+}

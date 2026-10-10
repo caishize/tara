@@ -1,0 +1,415 @@
+{
+  "$schema": "execution-plan-v2",
+  "id": "plan-20260319-briefing-collapse-lazy-history",
+  "feature": "简报折叠 + 历史消息懒加载",
+  "status": "completing",
+  "created": "2026-03-19T00:00:00Z",
+  "updated": "2026-03-19T12:00:00Z",
+  "spec_source": "CEO Review + Eng Review (2026-03-19, SCOPE EXPANSION mode)",
+  "overview": "优化对话页简报展示和历史消息交互：简报卡片可折叠（Stack吸顶+已读自动收起），历史消息支持 before_id cursor 无限懒加载，含会话章节标记、跳回今天FAB、新洞察脉冲动效。",
+
+  "risks": [
+    {
+      "id": "R1",
+      "description": "conversation_page.dart 已 1130 行，新功能可能进一步膨胀",
+      "mitigation": "强制三个新功能独立 widget 文件，主文件只做协调",
+      "status": "open"
+    },
+    {
+      "id": "R2",
+      "description": "reverse:true + Stack 叠加高度测量在不同机型/density 下可能不稳定",
+      "mitigation": "GlobalKey + RenderBox 实时测量，不使用固定阈值",
+      "status": "open"
+    },
+    {
+      "id": "R3",
+      "description": "DB Migration 在生产环境需要 zero-downtime",
+      "mitigation": "使用 CREATE INDEX CONCURRENTLY，Alembic 异步 migration",
+      "status": "open"
+    }
+  ],
+
+  "decisions": [
+    {
+      "id": "D1",
+      "question": "简报吸顶用 SliverPersistentHeader 还是 Stack 覆盖层？",
+      "decision": "Stack 覆盖层 (Stack+Positioned at top:0)",
+      "alternatives": ["SliverPersistentHeader (reverse模式吸底，不符合需求)"],
+      "rationale": "reverse:true ListView 下 SliverPersistentHeader 吸附到底部而非顶部；Stack 方案保留全部现有滚动逻辑"
+    },
+    {
+      "id": "D2",
+      "question": "历史消息分页 cursor 用 before_timestamp 还是 before_id？",
+      "decision": "before_id (消息 UUID)",
+      "alternatives": ["before_timestamp (已有70%实现但同秒多消息有边界问题)"],
+      "rationale": "before_id 完全避免时间戳精度问题，查询用 WHERE id < before_id ORDER BY id DESC"
+    },
+    {
+      "id": "D3",
+      "question": "是否去掉 reverse:true 改正向滚动？",
+      "decision": "保留 reverse:true",
+      "alternatives": ["正向滚动 + jumpTo(maxScrollExtent) 首屏跳底部"],
+      "rationale": "reverse:true 的底部自动滚动逻辑已经过验证，改正向滚动有 Flutter 布局时序坑；HistoryLoadTrigger 在高 index 处触发同样有效"
+    },
+    {
+      "id": "D4",
+      "question": "DaySummaryMarker 数据缓存用什么机制？",
+      "decision": "LocalStorage (现有 Hive cacheBox 封装)",
+      "alternatives": ["SharedPreferences", "内存状态（重启丢失）"],
+      "rationale": "项目已有 LocalStorage 封装，避免引入新基础设施"
+    }
+  ],
+
+  "test_plan": {
+    "unit": [
+      "test_load_more_history_happy_path_merges_messages_correctly",
+      "test_load_more_history_ignored_when_already_loading",
+      "test_load_more_history_api_failure_resets_loading_state",
+      "test_history_has_more_false_trigger_does_not_emit",
+      "test_briefing_read_date_resets_on_new_day"
+    ],
+    "integration": [
+      "test_chat_history_before_id_pagination_returns_correct_page",
+      "test_chat_history_has_more_field_correctness",
+      "test_chat_history_cross_user_session_returns_403",
+      "test_daily_summaries_returns_cached_summaries",
+      "test_daily_summaries_returns_empty_array_gracefully"
+    ],
+    "structural": [
+      "briefing_compact_strip.dart 独立文件存在且 < 200 LOC",
+      "history_load_trigger.dart 独立文件存在且 < 100 LOC",
+      "day_summary_marker.dart 独立文件存在且 < 150 LOC",
+      "conversation_page.dart 增量 < 100 行（新逻辑在独立文件）",
+      "backend migration 文件编号为 129_xxx"
+    ]
+  },
+
+  "tasks": [
+    {
+      "id": 1,
+      "title": "DB Migration: 添加 (session_id, id DESC) 索引",
+      "layer": "repo",
+      "phase": 1,
+      "status": "done",
+      "files": [
+        "backend/src/db/migrations/versions/129_add_conversation_message_id_index.py"
+      ],
+      "depends_on": [],
+      "acceptance": [
+        "alembic upgrade head 成功执行",
+        "ix_conversation_messages_session_id 索引存在于 conversation_messages 表",
+        "downgrade 能干净移除索引"
+      ],
+      "constraints": [
+        "使用 CREATE INDEX CONCURRENTLY 避免表锁",
+        "不修改任何现有表结构，只添加索引",
+        "migration 编号为 129"
+      ],
+      "context": [
+        "backend/src/db/migrations/versions/029_intelligent_secretary.py — 查看现有 ix_conversation_messages_session 索引格式",
+        "backend/src/db/migrations/env.py — migration 环境配置"
+      ]
+    },
+    {
+      "id": 2,
+      "title": "Backend: MessageService.get_history 改用 before_id + 返回 has_more",
+      "layer": "service",
+      "phase": 2,
+      "status": "done",
+      "files": [
+        "backend/src/modules/conversation/message_service.py"
+      ],
+      "depends_on": [1],
+      "acceptance": [
+        "get_history(before_id=UUID) 查询改为 WHERE id < before_id ORDER BY id DESC LIMIT n",
+        "返回 (messages, has_more) 元组，has_more = 实际返回数 == limit",
+        "before_id=None 时返回最新 n 条（向后兼容）",
+        "test_chat_history_before_id_pagination_returns_correct_page 通过"
+      ],
+      "constraints": [
+        "不改变函数签名以外的任何其他逻辑",
+        "before_timestamp 参数可保留但在 before_id 存在时忽略",
+        "返回顺序依然是 oldest-first (reversed)"
+      ],
+      "context": [
+        "backend/src/modules/conversation/message_service.py:87-104 — 现有 get_history 实现",
+        "backend/src/db/migrations/versions/029_intelligent_secretary.py — ConversationMessage 表结构"
+      ]
+    },
+    {
+      "id": 3,
+      "title": "Backend: GET /chat/history 接入 before_id + has_more 响应",
+      "layer": "runtime",
+      "phase": 3,
+      "status": "done",
+      "files": [
+        "backend/src/api/v1/chat.py"
+      ],
+      "depends_on": [2],
+      "acceptance": [
+        "GET /chat/history?session_id=X&before_id=Y&limit=30 正确调用 msg_svc.get_history(before_id=Y)",
+        "响应包含 has_more: bool 字段",
+        "before_id 为非法 UUID 时返回 400",
+        "跨用户 session_id 返回 404",
+        "test_chat_history_cross_user_session_returns_403 通过"
+      ],
+      "constraints": [
+        "不改变 GET /chat/history 不带 session_id 时的行为（跨 session 历史）",
+        "session_id 权限验证逻辑保持不变（已有 user_id 校验）",
+        "limit 范围检查保持 1-100"
+      ],
+      "context": [
+        "backend/src/api/v1/chat.py:1359-1424 — 现有 get_history 端点",
+        "backend/src/modules/conversation/message_service.py — 修改后的 get_history"
+      ]
+    },
+    {
+      "id": 4,
+      "title": "Backend: GET /chat/daily-summaries 端点 + Celery 任务",
+      "layer": "runtime",
+      "phase": 3,
+      "status": "done",
+      "files": [
+        "backend/src/api/v1/chat.py",
+        "backend/src/modules/conversation/message_service.py",
+        "backend/src/tasks/secretary_tasks.py"
+      ],
+      "depends_on": [2],
+      "acceptance": [
+        "GET /chat/daily-summaries?session_id=X 返回 [{date: 'YYYY-MM-DD', summary: '...'}]",
+        "无缓存时返回空数组（不崩溃）",
+        "Celery 任务 secretary.generate_daily_summaries 每日 05:30 执行",
+        "任务使用 Haiku 4.5，输入预算 ≤ 2000 tokens（最近 20 条消息）",
+        "test_daily_summaries_returns_cached_summaries 通过",
+        "test_daily_summaries_returns_empty_array_gracefully 通过"
+      ],
+      "constraints": [
+        "仅对 message_count >= 5 的 session 生成摘要（避免空会话浪费）",
+        "摘要存入 DB（新增 session_daily_summaries 表 或 sessions.summary_cache JSONB 字段）",
+        "不在请求热路径上调用 LLM",
+        "Celery task name: 'secretary.generate_daily_summaries'",
+        "LLM 调用使用 claude-haiku-4-5-20251001 model"
+      ],
+      "context": [
+        "backend/src/api/v1/chat.py — 添加新路由参考现有路由格式",
+        "backend/src/tasks/secretary_tasks.py — 参考现有 Celery 任务格式",
+        "CLAUDE.md — Celery 任务命名规范 (secretary.*)",
+        "backend/src/core/llm/llm_provider.py — LLM 调用方式"
+      ]
+    },
+    {
+      "id": 5,
+      "title": "Mobile: AssistantBloc 新增 LoadMoreHistoryRequested + 3 Critical Gap fixes",
+      "layer": "service",
+      "phase": 4,
+      "status": "done",
+      "files": [
+        "mobile/lib/features/chat/presentation/bloc/assistant_events.dart",
+        "mobile/lib/features/chat/presentation/bloc/assistant_state.dart",
+        "mobile/lib/features/chat/presentation/bloc/assistant_bloc.dart",
+        "mobile/lib/features/chat/data/datasources/assistant_remote_datasource.dart"
+      ],
+      "depends_on": [3],
+      "acceptance": [
+        "AssistantLoaded 新增字段: historyHasMore(bool), isLoadingHistory(bool), oldestMessageId(String?)",
+        "LoadMoreHistoryRequested event 新增",
+        "_onLoadMoreHistory 第一行: if (state is AssistantLoaded && state.isLoadingHistory) return (CRITICAL GAP 1)",
+        "_onLoadMoreHistory 用 try/catch 包裹 API 调用，失败时 emit isLoadingHistory=false + snackbar error (CRITICAL GAP 2)",
+        "getSessionHistory datasource 支持 beforeId 参数，传递 session_id（修复现有 bug）",
+        "成功时消息 prepend: messages = [...newMessages, ...state.messages]，超过 200 条卸载末尾",
+        "test_load_more_history_happy_path_merges_messages_correctly 通过",
+        "test_load_more_history_ignored_when_already_loading 通过",
+        "test_load_more_history_api_failure_resets_loading_state 通过"
+      ],
+      "constraints": [
+        "不修改现有 AssistantLoadHistory event（保持向后兼容）",
+        "200 条软上限: messages.length > 200 时 messages = messages.sublist(0, 200)",
+        "copyWith 必须包含新字段",
+        "不使用 setState，只用 emit"
+      ],
+      "context": [
+        "mobile/lib/features/chat/presentation/bloc/assistant_state.dart — 现有 AssistantLoaded 结构",
+        "mobile/lib/features/chat/presentation/bloc/assistant_events.dart:306-309 — 现有 AssistantLoadHistory",
+        "mobile/lib/features/chat/presentation/bloc/assistant_bloc.dart:680-696 — 现有 _onLoadHistory",
+        "mobile/lib/features/chat/data/datasources/assistant_remote_datasource.dart:465-477 — 现有 getSessionHistory（注意：当前未传 session_id，这是需要修复的 bug）"
+      ]
+    },
+    {
+      "id": 6,
+      "title": "Mobile: BriefingCompactStrip widget",
+      "layer": "ui",
+      "phase": 5,
+      "status": "done",
+      "files": [
+        "mobile/lib/features/chat/presentation/widgets/briefing_compact_strip.dart"
+      ],
+      "depends_on": [5],
+      "acceptance": [
+        "StatefulWidget，接收 urgentInsights, onTap, onPulseComplete 参数",
+        "有内容时显示 urgentInsights.first.title（截断 30 字）",
+        "无内容时显示「📋 今日简报」",
+        "带展开图标 ▾ 和 44px 最小高度（touch target）",
+        "AnimationController 实现 pulse（scale 1.0→1.02→1.0，duration 600ms）",
+        "pulse() 方法供外部调用",
+        "Widget 文件 < 200 LOC"
+      ],
+      "constraints": [
+        "新建独立文件，不追加到 briefing_message_card.dart",
+        "不使用硬编码颜色，使用 Theme.of(context).colorScheme",
+        "pulse 只做 scale 动画，不做颜色变化（更克制）"
+      ],
+      "context": [
+        "mobile/lib/features/chat/presentation/widgets/expandable_content_section.dart — AnimatedCrossFade 折叠参考",
+        "mobile/lib/features/chat/presentation/widgets/briefing_message_card.dart:1 — urgentInsights 数据结构",
+        "mobile/lib/app/theme/app_colors.dart — 颜色系统"
+      ]
+    },
+    {
+      "id": 7,
+      "title": "Mobile: HistoryLoadTrigger widget",
+      "layer": "ui",
+      "phase": 5,
+      "status": "done",
+      "files": [
+        "mobile/lib/features/chat/presentation/widgets/history_load_trigger.dart"
+      ],
+      "depends_on": [5],
+      "acceptance": [
+        "StatelessWidget，接收 hasMore(bool), isLoading(bool), onTrigger(VoidCallback) 参数",
+        "hasMore=false 时渲染空 SizedBox（不触发，CRITICAL GAP 3）",
+        "hasMore=true + isLoading=false 时用 VisibilityDetector 检测进入视口后调用 onTrigger",
+        "hasMore=true + isLoading=true 时显示 CircularProgressIndicator",
+        "Widget 文件 < 100 LOC"
+      ],
+      "constraints": [
+        "新建独立文件",
+        "VisibilityDetector 依赖: visibility_detector 包（检查 pubspec.yaml 是否已有）",
+        "onTrigger 调用一次后不再重复调用，直到 isLoading 重置为 false"
+      ],
+      "context": [
+        "mobile/pubspec.yaml — 检查现有依赖",
+        "mobile/lib/features/chat/presentation/bloc/assistant_state.dart — historyHasMore/isLoadingHistory 字段"
+      ]
+    },
+    {
+      "id": 8,
+      "title": "Mobile: DaySummaryMarker widget + LocalStorage 缓存",
+      "layer": "ui",
+      "phase": 5,
+      "status": "done",
+      "files": [
+        "mobile/lib/features/chat/presentation/widgets/day_summary_marker.dart",
+        "mobile/lib/features/chat/data/datasources/assistant_remote_datasource.dart"
+      ],
+      "depends_on": [4, 5],
+      "acceptance": [
+        "DaySummaryMarker 接收 date(DateTime), summary(String?) 参数",
+        "summary 非空时显示: ── 3月18日·星期三 ── + 摘要文本（单行截断）",
+        "summary 为空时只显示日期分隔线（不显示摘要文本框）",
+        "AssistantRemoteDatasource 新增 getDailySummaries(sessionId) → Map<String, String>",
+        "getDailySummaries 结果缓存到 LocalStorage key='daily_summaries_{sessionId}'",
+        "缓存有效期 24 小时",
+        "Widget 文件 < 150 LOC"
+      ],
+      "constraints": [
+        "新建独立文件",
+        "不在 build() 中调用 API，由 ConversationPage 在 initState 中预加载",
+        "缓存 key 格式: 'daily_summaries_{sessionId}'",
+        "日期格式: DateFormat('M月d日·EEEE', 'zh_CN')"
+      ],
+      "context": [
+        "mobile/lib/core/storage/local_storage.dart — LocalStorage 使用方式",
+        "mobile/lib/features/chat/data/datasources/assistant_remote_datasource.dart — API 调用格式",
+        "mobile/lib/features/chat/presentation/widgets/time_separator.dart — 时间分隔线参考样式"
+      ]
+    },
+    {
+      "id": 9,
+      "title": "Mobile: ConversationPage 改造（Stack + GlobalKey + FAB + #1 已读折叠 + #6 脉冲）",
+      "layer": "ui",
+      "phase": 6,
+      "status": "done",
+      "files": [
+        "mobile/lib/features/chat/presentation/pages/conversation_page.dart"
+      ],
+      "depends_on": [5, 6, 7, 8],
+      "acceptance": [
+        "用 Stack 包裹 Column，Positioned(top:0) 放 BriefingCompactStrip（AnimatedSwitcher 淡入淡出）",
+        "GlobalKey _briefingKey 添加到 _buildBriefingSection() 外层 Container",
+        "_onScroll() 中：读取 _briefingKey.currentContext?.findRenderObject()?.size?.height，超过则 setState(_briefingScrolledOff = true)",
+        "BriefingCompactStrip 仅在 _briefingScrolledOff=true 时显示",
+        "#1: initState 读取 SharedPreferences 'briefing_read_date'，等于今日则 _briefingScrolledOff=true（初始折叠）",
+        "#1: _onScroll 第一次 _briefingScrolledOff=true 时写入今日日期到 SP",
+        "#1: didChangeAppLifecycleState(resumed) 重新检查日期（跨日重置）",
+        "HistoryLoadTrigger 插入 _buildItemList() 返回 items 末尾（reverse=true 的物理顶部）",
+        "LoadMoreHistoryRequested 在 onTrigger 时 add 到 assistantBloc",
+        "DaySummaryMarker 在 _buildItemList() 的跨日边界处插入（按 message.createdAt.day 比较）",
+        "DaySummaryMarker dedup: 同一天只插入一次",
+        "#5: 跳回今天 FAB：_briefingScrolledOff=true 且 messages 非空时显示，点击 _scrollToBottom(force:true)",
+        "#6: 监听 DailyBriefingBloc 新 insight（urgentInsights 长度增加时），调用 _compactStripKey.currentState?.pulse()",
+        "conversation_page.dart 增量 < 100 行（主要逻辑在子 widget）"
+      ],
+      "constraints": [
+        "不新增任何业务逻辑到 conversation_page.dart，只做协调",
+        "SharedPreferences key: 'briefing_read_date'，value: DateFormat('yyyy-MM-dd').format(DateTime.now())",
+        "不修改 _buildBriefingSection() 内部逻辑",
+        "不修改 ChatInput",
+        "DaySummaryMarker 数据在 initState 从 LocalStorage 或 API 预加载，存为 Map<String, String> _dailySummaries"
+      ],
+      "context": [
+        "mobile/lib/features/chat/presentation/pages/conversation_page.dart:603-680 — _buildChatArea 和 _buildItemList",
+        "mobile/lib/features/chat/presentation/pages/conversation_page.dart:130-138 — _onScroll",
+        "mobile/lib/features/chat/presentation/pages/conversation_page.dart:73-104 — initState",
+        "mobile/lib/features/chat/presentation/widgets/briefing_compact_strip.dart — 刚创建的 widget",
+        "mobile/lib/features/chat/presentation/widgets/history_load_trigger.dart — 刚创建的 widget",
+        "mobile/lib/features/chat/presentation/widgets/day_summary_marker.dart — 刚创建的 widget"
+      ]
+    },
+    {
+      "id": 10,
+      "title": "Tests: Flutter Bloc unit tests (5个) + Backend integration tests (5个)",
+      "layer": "cross-cutting",
+      "phase": 7,
+      "status": "done",
+      "files": [
+        "mobile/test/features/chat/bloc/assistant_bloc_load_more_history_test.dart",
+        "backend/tests/test_chat_history_pagination.py",
+        "backend/tests/test_daily_summaries.py"
+      ],
+      "depends_on": [3, 4, 5, 6, 7, 8, 9],
+      "acceptance": [
+        "test_load_more_history_happy_path_merges_messages_correctly: 新消息 prepend 到现有消息",
+        "test_load_more_history_ignored_when_already_loading: 第二次 add 时直接 return",
+        "test_load_more_history_api_failure_resets_loading_state: isLoadingHistory 回到 false",
+        "test_history_has_more_false_trigger_does_not_emit: HistoryLoadTrigger widget 不 callback",
+        "test_briefing_read_date_resets_on_new_day: 日期变化时 _briefingScrolledOff=false",
+        "test_chat_history_before_id_pagination_returns_correct_page: API 返回正确消息集",
+        "test_chat_history_has_more_field_correctness: 最后一页 has_more=false",
+        "test_chat_history_cross_user_session_returns_403/404",
+        "test_daily_summaries_returns_cached_summaries: 返回 [{date, summary}]",
+        "test_daily_summaries_returns_empty_array_gracefully: 无缓存时 []",
+        "flutter test mobile/test/features/chat/ — 全部通过",
+        "cd backend && pytest tests/test_chat_history_pagination.py tests/test_daily_summaries.py — 全部通过"
+      ],
+      "constraints": [
+        "Bloc 测试使用 bloc_test 包（检查 pubspec.yaml 是否已有 bloc_test 依赖）",
+        "Backend 测试使用现有 conftest.py 中的 db/client fixtures",
+        "不 mock 数据库，使用测试数据库（参考 conftest.py 模式）",
+        "测试文件放在正确目录：mobile/test/features/chat/bloc/ 和 backend/tests/"
+      ],
+      "context": [
+        "mobile/test/assistant_cleaning_test.dart — 现有 Flutter 测试参考",
+        "mobile/test/features/kanban/ — 现有 Flutter widget 测试目录结构参考",
+        "backend/tests/conftest.py — pytest fixtures",
+        "backend/tests/test_notes_api.py — 后端 API 集成测试参考格式",
+        "mobile/pubspec.yaml — 确认 bloc_test 依赖"
+      ]
+    }
+  ],
+
+  "metrics": {
+    "tasks_total": 10,
+    "tasks_done": 10,
+    "tasks_blocked": 0
+  }
+}

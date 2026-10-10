@@ -1,0 +1,36 @@
+repos:
+  - repo: https://github.com/psf/black
+    rev: 24.10.0
+    hooks:
+      - id: black
+        args: [--check]
+        files: ^backend/
+
+  - repo: https://github.com/PyCQA/flake8
+    rev: 7.1.1
+    hooks:
+      - id: flake8
+        files: ^backend/
+
+  - repo: local
+    hooks:
+      - id: type-check
+        name: mypy type check
+        entry: bash -c 'cd backend && source venv/bin/activate && mypy src/ --ignore-missing-imports'
+        language: system
+        files: ^backend/.*\.py$
+        types: [python]
+        pass_filenames: false
+
+      - id: architecture-guard
+        name: architecture guard (layer boundaries + file size)
+        entry: bash -c 'cd backend && source venv/bin/activate && pytest tests/test_architecture.py -x -q --no-header 2>/dev/null'
+        language: system
+        files: ^backend/src/
+        types: [python]
+        pass_filenames: false
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.21.2
+    hooks:
+      - id: gitleaks

@@ -1,0 +1,30 @@
+# Dependencies
+node_modules/
+frontend/node_modules/
+
+# Build outputs
+dist/
+build/
+frontend/dist/
+frontend/build/
+
+# Coverage
+coverage/
+frontend/coverage/
+.nyc_output/
+
+# Minified files
+*.min.js
+*.min.css
+
+# Lock files
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Temp files
+*.tmp
+.temp/
+
+# Generated files
+vite.config.ts.timestamp-*

@@ -1,0 +1,109 @@
+name: family_secretary
+description: 家庭管家 - 智能家庭生活管理助手
+publish_to: 'none'
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.2.0 <4.0.0'
+  flutter: '>=3.16.0'
+
+dependencies:
+  flutter:
+    sdk: flutter
+  flutter_localizations:
+    sdk: flutter
+
+  # State Management
+  flutter_bloc: ^8.1.3
+  equatable: ^2.0.5
+
+  # Routing
+  go_router: ^13.0.0
+
+  # Network
+  dio: ^5.4.0
+  http: ^1.2.0
+  json_annotation: ^4.8.1
+
+  # Local Storage
+  hive: ^2.2.3
+  hive_flutter: ^1.1.0
+
+  # Secure Storage (for JWT tokens)
+  flutter_secure_storage: ^9.0.0
+
+  # Dependency Injection
+  get_it: ^7.6.4
+
+  # UI Components
+  flutter_svg: ^2.0.9
+  cached_network_image: ^3.3.0
+  shimmer: ^3.0.0
+  fl_chart: ^0.65.0
+
+  # Utils
+  intl: ^0.19.0
+  logger: ^2.0.2+1
+  connectivity_plus: ^5.0.2
+  web_socket_channel: ^2.4.0
+  dartz: ^0.10.1
+
+  # Date/Calendar
+  table_calendar: ^3.0.9
+  lunar: ^1.3.0
+
+  # Notifications
+  flutter_local_notifications: ^16.3.0
+
+  # Firebase (Push Notifications)
+  firebase_core: ^4.4.0
+  firebase_messaging: ^16.1.0
+
+  # Icons
+  cupertino_icons: ^1.0.6
+  iconsax: ^0.0.8
+
+  # URL Launcher
+  url_launcher: ^6.2.2
+
+  # OAuth Authentication
+  flutter_web_auth_2: ^3.1.2
+  app_links: ^6.1.1
+
+  # Markdown rendering
+  flutter_markdown: ^0.6.18
+
+  # Image Picker (for camera/gallery)
+  image_picker: ^1.0.7
+
+  # Path Provider (for file operations)
+  path_provider: ^2.1.2
+
+  # Package Info (for version info)
+  package_info_plus: ^9.0.0
+
+  # Location
+  geolocator: ^13.0.0
+  geocoding: ^3.0.0
+
+  # Audio Recording
+  record: ^5.1.3
+
+dependency_overrides:
+  record_linux: ^1.3.0
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.1
+  build_runner: ^2.4.7
+  json_serializable: ^6.7.1
+  hive_generator: ^2.0.1
+  mocktail: ^1.0.1
+  bloc_test: ^9.1.5
+
+flutter:
+  uses-material-design: true
+
+  assets:
+    - assets/translations/
